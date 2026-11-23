@@ -1,4 +1,4 @@
-export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+export const DEFAULT_MODEL = 'gemini-3.8-flash';
 export const FALLBACK_MODEL = 'gemini-2.5-flash';
 
 export type Meta = { grade: string; subject: string; language: 'English' | 'Hinglish'; extraQuestions: 5 | 10 | 15 };
