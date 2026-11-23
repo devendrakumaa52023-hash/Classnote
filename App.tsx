@@ -1,35 +1,87 @@
+
 import React, { useState } from 'react';
-import { SafeAreaView, Text, TouchableOpacity, View } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
+import { C } from './src/theme';
+import { SavedLecture } from './src/storage';
 import RecordScreen from './src/screens/RecordScreen';
 import ResultScreen from './src/screens/ResultScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
-import { SavedLecture } from './src/storage';
-import { C, g } from './src/theme';
 
-const TABS = [['record', '🎙 Record'], ['history', '📚 History'], ['settings', '⚙ Settings']] as const;
+type Tab = 'record' | 'history' | 'settings';
 
 export default function App() {
-  const [tab, setTab] = useState<'record' | 'history' | 'settings'>('record');
-  const [open, setOpen] = useState<SavedLecture | null>(null);
-  const [recording, setRecording] = useState(false);
+  const [tab, setTab] = useState<Tab>('record');
+  const [activeLecture, setActiveLecture] = useState<SavedLecture | null>(null);
+
   return (
-    <SafeAreaView style={[g.screen, { paddingTop: 28 }]}>
-      <StatusBar style="light" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <View style={{ flex: 1 }}>
-        {open ? <ResultScreen lecture={open} onBack={() => setOpen(null)} />
-          : tab === 'record' ? <RecordScreen onDone={setOpen} />
-          : tab === 'history' ? <HistoryScreen key={String(open)} onOpen={setOpen} />
-          : <SettingsScreen />}
+        {activeLecture ? (
+          <ResultScreen
+            lecture={activeLecture}
+            onBack={() => setActiveLecture(null)}
+          />
+        ) : tab === 'record' ? (
+          <RecordScreen onDone={(lec) => setActiveLecture(lec)} />
+        ) : tab === 'history' ? (
+          <HistoryScreen onSelect={(lec) => setActiveLecture(lec)} />
+        ) : (
+          <SettingsScreen />
+        )}
       </View>
-      {!open && (
-        <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.line, backgroundColor: C.card }}>
-          {TABS.map(([k, label]) => (
-            <TouchableOpacity key={k} style={{ flex: 1, padding: 14 }} onPress={() => setTab(k)}>
-              <Text style={{ textAlign: 'center', color: tab === k ? C.accent : C.dim, fontWeight: '700' }}>{label}</Text>
-            </TouchableOpacity>
-          ))}
+
+      {!activeLecture && (
+        <View
+          style={{
+            flexDirection: 'row',
+            backgroundColor: C.surface,
+            borderTopWidth: 1,
+            borderTopColor: C.border,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            gap: 8,
+          }}
+        >
+          {(
+            [
+              { id: 'record', label: 'Studio', icon: '🎙️' },
+              { id: 'history', label: 'Library', icon: '📚' },
+              { id: 'settings', label: 'Engine', icon: '⚙️' },
+            ] as const
+          ).map((item) => {
+            const active = tab === item.id;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                onPress={() => setTab(item.id)}
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: active ? C.primaryGlow : 'transparent',
+                  borderWidth: 1,
+                  borderColor: active ? C.primary : 'transparent',
+                }}
+              >
+                <Text style={{ fontSize: 15 }}>{item.icon}</Text>
+                <Text
+                  style={{
+                    color: active ? C.text : C.subtext,
+                    fontWeight: active ? '700' : '600',
+                    fontSize: 13,
+                  }}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       )}
     </SafeAreaView>
