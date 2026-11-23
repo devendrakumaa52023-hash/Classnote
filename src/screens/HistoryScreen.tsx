@@ -1,33 +1,72 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { deleteLecture, loadLectures, SavedLecture } from '../storage';
 import { C, g } from '../theme';
 
-export default function HistoryScreen({ onOpen }: { onOpen: (l: SavedLecture) => void }) {
-  const [items, setItems] = useState<SavedLecture[]>([]);
-  const refresh = useCallback(() => { loadLectures().then(setItems); }, []);
-  useEffect(refresh, []);
+export default function HistoryScreen({ onSelect }: { onSelect: (l: SavedLecture) => void }) {
+  const [list, setList] = useState<SavedLecture[]>([]);
+
+  const refresh = () => loadLectures().then(setList);
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const remove = (id: string) => {
+    Alert.alert('Delete Lecture?', 'This removes the saved notes from your phone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteLecture(id);
+          refresh();
+        },
+      },
+    ]);
+  };
+
   return (
-    <View style={g.screen}>
-      <FlatList
-        contentContainerStyle={g.pad}
-        data={items}
-        keyExtractor={(i) => i.id}
-        ListHeaderComponent={<Text style={g.h1}>Past Lectures</Text>}
-        ListEmptyComponent={<Text style={g.dim}>No lectures yet. Record your first class!</Text>}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={g.card} onPress={() => onOpen(item)}
-            onLongPress={() => Alert.alert('Delete lecture?', item.result.handout.title, [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: async () => { await deleteLecture(item.id); refresh(); } },
-            ])}>
-            <Text style={[g.text, { fontWeight: '700' }]}>{item.result.handout.title}</Text>
-            <Text style={g.dim}>{item.meta.grade} • {item.meta.subject} • {new Date(item.createdAt).toLocaleString()}</Text>
-            <Text style={[g.dim, { color: C.accent }]}>{item.result.student_doubts.length} doubts • {item.result.worksheet.mcqs.length} MCQs</Text>
+    <ScrollView style={g.screen} contentContainerStyle={g.container}>
+      <View style={g.headerRow}>
+        <View>
+          <Text style={g.h1}>Lecture Library</Text>
+          <Text style={g.subtitle}>{list.length} saved sessions</Text>
+        </View>
+      </View>
+
+      {list.length === 0 ? (
+        <View style={[g.card, { alignItems: 'center', paddingVertical: 32 }]}>
+          <Text style={{ fontSize: 32, marginBottom: 10 }}>🎙️</Text>
+          <Text style={{ color: C.text, fontWeight: '700', fontSize: 15 }}>No lectures yet</Text>
+          <Text style={[g.subtitle, { textAlign: 'center', marginTop: 4 }]}>
+            Record your first class in the Studio tab to generate handouts & DPPs.
+          </Text>
+        </View>
+      ) : (
+        list.map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            style={g.card}
+            onPress={() => onSelect(item)}
+            onLongPress={() => remove(item.id)}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>
+                {item.meta.grade} • {item.meta.subject}
+              </Text>
+              <Text style={{ color: C.muted, fontSize: 11 }}>
+                {new Date(item.createdAt).toLocaleDateString()}
+              </Text>
+            </View>
+            <Text style={{ color: C.text, fontSize: 16, fontWeight: '800' }}>
+              {item.result.title || item.meta.topic || 'Untitled Lecture'}
+            </Text>
+            <Text numberOfLines={2} style={{ color: C.subtext, fontSize: 13, marginTop: 4 }}>
+              {item.result.summary}
+            </Text>
           </TouchableOpacity>
-        )}
-      />
-      <Text style={[g.dim, { textAlign: 'center', paddingBottom: 8 }]}>Long-press a lecture to delete it</Text>
-    </View>
+        ))
+      )}
+    </ScrollView>
   );
 }
