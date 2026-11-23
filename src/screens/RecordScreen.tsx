@@ -1,6 +1,24 @@
+
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, PermissionsAndroid, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
-import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  PermissionsAndroid,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import { processLecture } from '../api';
 import { loadSettings, saveLecture, SavedLecture } from '../storage';
@@ -8,119 +26,328 @@ import { Meta } from '../shared/lecture';
 import { C, g } from '../theme';
 
 const GRADES = ['Class 10', 'Class 11', 'Class 12', 'JEE', 'NEET'];
-const SUBJECTS = ['Physics', 'Chemistry', 'Maths', 'Biology', 'Science', 'Other'];
+const SUBJECTS = ['Physics', 'Chemistry', 'Maths', 'Biology', 'Other'];
+
 const OPTIONS: any = {
   ...RecordingPresets.HIGH_QUALITY,
-  extension: '.m4a', sampleRate: 16000, numberOfChannels: 1, bitRate: 32000, isMeteringEnabled: true,
+  extension: '.m4a',
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 32000,
+  isMeteringEnabled: true,
   android: { extension: '.m4a', outputFormat: 'mpeg4', audioEncoder: 'aac' },
 };
 
-const Chips = <T extends string | number>({ items, value, onPick }: { items: T[]; value: T; onPick: (v: T) => void }) => (
-  <View style={g.row}>
-    {items.map((i) => (
-      <TouchableOpacity key={String(i)} style={[g.chip, value === i && g.chipOn]} onPress={() => onPick(i)}>
-        <Text style={[g.chipText, value === i && g.chipTextOn]}>{String(i)}</Text>
-      </TouchableOpacity>
-    ))}
-  </View>
-);
-const fmt = (ms: number) => { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const fmt = (ms: number) => {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
 
 export default function RecordScreen({ onDone }: { onDone: (l: SavedLecture) => void }) {
-  const [meta, setMeta] = useState<Meta>({ grade: 'Class 10', subject: 'Physics', language: 'Hinglish', extraQuestions: 10 });
+  const [meta, setMeta] = useState<Meta>({
+    grade: 'Class 11',
+    subject: 'Physics',
+    topic: '',
+    language: 'English + Hinglish',
+  });
   const [phase, setPhase] = useState<'setup' | 'recording' | 'processing' | 'error'>('setup');
   const [paused, setPaused] = useState(false);
   const [stage, setStage] = useState('');
   const [err, setErr] = useState('');
-  const [saved, setSaved] = useState<{ id: string; uri: string } | null>(null);
+  const [savedAudio, setSavedAudio] = useState<{ id: string; uri: string } | null>(null);
+
   const recorder = useAudioRecorder(OPTIONS);
   const st = useAudioRecorderState(recorder, 250);
-  const level = useRef(new Animated.Value(0.2)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const db = typeof st.metering === 'number' ? st.metering : -60;
-    Animated.timing(level, { toValue: paused ? 0.1 : Math.max(0.1, Math.min(1, (db + 60) / 60)), duration: 200, useNativeDriver: true }).start();
-  }, [st.metering, paused]);
+    if (phase === 'recording' && !paused) {
+      const db = typeof st.metering === 'number' ? st.metering : -50;
+      const scale = 1 + Math.max(0, Math.min(0.28, (db + 55) / 140));
+      Animated.spring(pulse, { toValue: scale, useNativeDriver: true, friction: 6 }).start();
+    } else {
+      pulse.setValue(1);
+    }
+  }, [st.metering, phase, paused]);
 
-  async function start() {
-    const p = await requestRecordingPermissionsAsync();
-    if (!p.granted) return Alert.alert('Microphone permission needed', 'Allow microphone access to record the lecture.');
-    if (Platform.OS === 'android' && Platform.Version >= 33) await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS' as any);
+  const startRecording = async () => {
     try {
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, shouldPlayInBackground: true, allowsBackgroundRecording: true } as any);
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Microphone access is required to record lectures.');
+        return;
+      }
+      if (Platform.OS === 'android' && Platform.Version >= 33) {
+        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+      }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+      });
       await recorder.prepareToRecordAsync();
       recorder.record();
-      setPaused(false); setPhase('recording');
-    } catch (e: any) { Alert.alert('Could not start recording', e.message); }
-  }
-  const togglePause = () => { if (paused) recorder.record(); else recorder.pause(); setPaused(!paused); };
+      setPaused(false);
+      setPhase('recording');
+    } catch (e: any) {
+      Alert.alert('Mic Error', e?.message || 'Could not start recording.');
+    }
+  };
 
-  async function finish() {
-    await recorder.stop();
-    const src = recorder.uri;
-    if (!src) { setErr('No audio was recorded.'); return setPhase('error'); }
-    const id = String(Date.now());
-    const dir = FileSystem.documentDirectory + 'lectures/';
-    await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
-    const dest = `${dir}${id}.m4a`;
-    await FileSystem.copyAsync({ from: src, to: dest });
-    setSaved({ id, uri: dest });
-    run(id, dest);
-  }
+  const togglePause = () => {
+    if (paused) {
+      recorder.record();
+      setPaused(false);
+    } else {
+      recorder.pause();
+      setPaused(true);
+    }
+  };
 
-  async function run(id: string, uri: string) {
-    setPhase('processing'); setErr('');
+  const runAI = async (id: string, uri: string) => {
+    setPhase('processing');
+    setErr('');
     try {
       const settings = await loadSettings();
       const result = await processLecture(uri, meta, settings, setStage);
-      const entry: SavedLecture = { id, createdAt: Date.now(), meta, result, audioUri: uri };
-      await saveLecture(entry);
-      setPhase('setup'); setSaved(null);
-      onDone(entry);
-    } catch (e: any) { setErr(e.message || String(e)); setPhase('error'); }
+      const item: SavedLecture = {
+        id,
+        createdAt: Date.now(),
+        meta,
+        result,
+        audioUri: uri,
+      };
+      await saveLecture(item);
+      setPhase('setup');
+      onDone(item);
+    } catch (e: any) {
+      setErr(e?.message || 'AI synthesis failed');
+      setPhase('error');
+    }
+  };
+
+  const finishAndGenerate = async () => {
+    try {
+      await recorder.stop();
+      const rawUri = recorder.uri;
+      if (!rawUri) throw new Error('No audio file captured.');
+      const id = String(Date.now());
+      const dir = `${FileSystem.documentDirectory}lectures/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const dest = `${dir}${id}.m4a`;
+      await FileSystem.copyAsync({ from: rawUri, to: dest });
+      setSavedAudio({ id, uri: dest });
+      await runAI(id, dest);
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to save audio');
+      setPhase('error');
+    }
+  };
+
+  if (phase === 'processing') {
+    return (
+      <View style={[g.screen, { justifyContent: 'center', alignItems: 'center', padding: 28 }]}>
+        <View
+          style={{
+            width: 84,
+            height: 84,
+            borderRadius: 42,
+            backgroundColor: C.primaryGlow,
+            borderWidth: 1.5,
+            borderColor: C.primary,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 20,
+          }}
+        >
+          <ActivityIndicator size="large" color={C.accent} />
+        </View>
+        <Text style={[g.h1, { textAlign: 'center' }]}>Synthesizing ClassNote</Text>
+        <Text style={{ color: C.accent, fontSize: 14, fontWeight: '600', marginTop: 8 }}>
+          {stage || 'Structuring concepts, doubts & DPP...'}
+        </Text>
+        <Text style={[g.subtitle, { textAlign: 'center', marginTop: 10 }]}>
+          Audio is safely backed up locally on your phone.
+        </Text>
+      </View>
+    );
+  }
+
+  if (phase === 'error') {
+    return (
+      <View style={[g.screen, { justifyContent: 'center', padding: 24 }]}>
+        <View style={[g.card, { borderColor: C.danger }]}>
+          <Text style={{ color: C.danger, fontSize: 18, fontWeight: '800', marginBottom: 8 }}>
+            Processing Interrupted
+          </Text>
+          <Text style={{ color: C.text, fontSize: 13, lineHeight: 20 }}>{err}</Text>
+          <Text style={{ color: C.subtext, fontSize: 12, marginTop: 12 }}>
+            Your lecture audio is safely saved on this device.
+          </Text>
+        </View>
+        {savedAudio && (
+          <TouchableOpacity
+            style={[g.primaryBtn, { marginTop: 8 }]}
+            onPress={() => runAI(savedAudio.id, savedAudio.uri)}
+          >
+            <Text style={g.primaryBtnText}>Retry AI Generation</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={{ alignItems: 'center', paddingVertical: 14 }}
+          onPress={() => setPhase('setup')}
+        >
+          <Text style={{ color: C.subtext, fontWeight: '700' }}>Back to Studio</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   if (phase === 'recording') {
     return (
-      <View style={[g.screen, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
-        <Text style={g.dim}>{meta.grade} • {meta.subject} • {meta.language}</Text>
-        <Animated.View style={{ marginVertical: 36, width: 140, height: 140, borderRadius: 70, backgroundColor: paused ? C.dim : C.bad, opacity: 0.85, transform: [{ scale: Animated.add(0.7, level) }] }} />
-        <Text style={{ color: C.text, fontSize: 48, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{fmt(st.durationMillis)}</Text>
-        <Text style={[g.dim, { marginTop: 8 }]}>{paused ? 'Paused' : 'Recording… you can lock the screen and pocket the phone.'}</Text>
-        <TouchableOpacity style={[g.btn, g.btn2, { width: '100%' }]} onPress={togglePause}><Text style={[g.btnText, { color: C.text }]}>{paused ? '▶ Resume' : '⏸ Pause'}</Text></TouchableOpacity>
-        <TouchableOpacity style={[g.btn, { width: '100%' }]} onPress={finish}><Text style={g.btnText}>Finish & Generate Handout</Text></TouchableOpacity>
+      <View style={[g.screen, { justifyContent: 'space-between', padding: 24 }]}>
+        <View style={g.headerRow}>
+          <View>
+            <Text style={g.h1}>Live Capture</Text>
+            <Text style={g.subtitle}>
+              {meta.grade} • {meta.subject}
+            </Text>
+          </View>
+          <View
+            style={[
+              g.brandBadge,
+              {
+                borderColor: paused ? C.warning : C.danger,
+                backgroundColor: paused ? 'rgba(245,158,11,0.16)' : 'rgba(244,63,94,0.16)',
+              },
+            ]}
+          >
+            <Text style={{ color: paused ? C.warning : C.danger, fontSize: 11, fontWeight: '800' }}>
+              {paused ? '● PAUSED' : '● ON AIR'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <Animated.View
+            style={{
+              width: 190,
+              height: 190,
+              borderRadius: 95,
+              backgroundColor: C.primaryGlow,
+              borderWidth: 2,
+              borderColor: paused ? C.warning : C.primary,
+              alignItems: 'center',
+              justifyContent: 'center',
+              transform: [{ scale: pulse }],
+            }}
+          >
+            <View
+              style={{
+                width: 146,
+                height: 146,
+                borderRadius: 73,
+                backgroundColor: C.card,
+                borderWidth: 1,
+                borderColor: C.border,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: C.text, fontSize: 34, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
+                {fmt(st.durationMillis || 0)}
+              </Text>
+              <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700', marginTop: 4 }}>
+                POCKET MODE READY
+              </Text>
+            </View>
+          </Animated.View>
+          <Text style={[g.subtitle, { textAlign: 'center', marginTop: 22, maxWidth: 270 }]}>
+            You can lock your screen and keep the phone in your shirt pocket while teaching.
+          </Text>
+        </View>
+
+        <View style={{ gap: 12 }}>
+          <TouchableOpacity
+            onPress={togglePause}
+            style={{
+              backgroundColor: C.cardElevated,
+              borderWidth: 1,
+              borderColor: C.border,
+              borderRadius: 16,
+              paddingVertical: 15,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: C.text, fontWeight: '700', fontSize: 15 }}>
+              {paused ? '▶ Resume Lecture' : '⏸ Pause Lecture'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={finishAndGenerate}
+            style={[g.primaryBtn, { backgroundColor: C.success, shadowColor: C.success }]}
+          >
+            <Text style={g.primaryBtnText}>✨ Finish & Generate Notes</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
-  if (phase === 'processing') {
-    return (
-      <View style={[g.screen, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
-        <ActivityIndicator size="large" color={C.accent} />
-        <Text style={[g.text, { marginTop: 16, textAlign: 'center' }]}>{stage || 'Working…'}</Text>
-        <Text style={[g.dim, { marginTop: 8, textAlign: 'center' }]}>Long lectures can take a few minutes. Audio is saved on your phone.</Text>
-      </View>
-    );
-  }
-  if (phase === 'error') {
-    return (
-      <View style={[g.screen, { justifyContent: 'center', padding: 24 }]}>
-        <Text style={[g.h1, { color: C.bad }]}>Processing failed</Text>
-        <Text style={g.text}>{err}</Text>
-        <Text style={[g.dim, { marginTop: 8 }]}>Your recording is safe on the device.</Text>
-        {saved && <TouchableOpacity style={g.btn} onPress={() => run(saved.id, saved.uri)}><Text style={g.btnText}>Retry</Text></TouchableOpacity>}
-        <TouchableOpacity style={[g.btn, g.btn2]} onPress={() => { setPhase('setup'); setSaved(null); }}><Text style={[g.btnText, { color: C.text }]}>Back</Text></TouchableOpacity>
-      </View>
-    );
-  }
+
   return (
-    <ScrollView style={g.screen} contentContainerStyle={g.pad}>
-      <Text style={g.h1}>New Class</Text>
-      <Text style={g.label}>Grade / Exam</Text><Chips items={GRADES} value={meta.grade} onPick={(grade) => setMeta({ ...meta, grade })} />
-      <Text style={g.label}>Subject</Text><Chips items={SUBJECTS} value={meta.subject} onPick={(subject) => setMeta({ ...meta, subject })} />
-      <Text style={g.label}>Language</Text><Chips items={['English', 'Hinglish'] as const} value={meta.language} onPick={(language) => setMeta({ ...meta, language })} />
-      <Text style={g.label}>Extra practice questions</Text><Chips items={[5, 10, 15] as const} value={meta.extraQuestions} onPick={(extraQuestions) => setMeta({ ...meta, extraQuestions })} />
-      <TouchableOpacity style={g.btn} onPress={start}><Text style={g.btnText}>🎙 Start Class</Text></TouchableOpacity>
-      <Text style={[g.dim, { marginTop: 12 }]}>Tip: tap Start, lock the screen and place the phone in your shirt pocket with the mic facing out.</Text>
+    <ScrollView style={g.screen} contentContainerStyle={g.container}>
+      <View style={g.headerRow}>
+        <View>
+          <Text style={g.h1}>ClassNote AI</Text>
+          <Text style={g.subtitle}>Classroom Lecture to Handout & DPP</Text>
+        </View>
+        <View style={g.brandBadge}>
+          <Text style={g.brandBadgeText}>GEMINI 3.8</Text>
+        </View>
+      </View>
+
+      <View style={g.card}>
+        <Text style={g.sectionLabel}>1. Target Batch / Grade</Text>
+        <View style={g.row}>
+          {GRADES.map((gr) => (
+            <TouchableOpacity
+              key={gr}
+              onPress={() => setMeta({ ...meta, grade: gr })}
+              style={[g.chip, meta.grade === gr && g.chipOn]}
+            >
+              <Text style={[g.chipText, meta.grade === gr && g.chipTextOn]}>{gr}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[g.sectionLabel, { marginTop: 18 }]}>2. Subject</Text>
+        <View style={g.row}>
+          {SUBJECTS.map((sub) => (
+            <TouchableOpacity
+              key={sub}
+              onPress={() => setMeta({ ...meta, subject: sub })}
+              style={[g.chip, meta.subject === sub && g.chipOn]}
+            >
+              <Text style={[g.chipText, meta.subject === sub && g.chipTextOn]}>{sub}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[g.sectionLabel, { marginTop: 18 }]}>3. Chapter / Topic (Optional)</Text>
+        <TextInput
+          value={meta.topic}
+          onChangeText={(t) => setMeta({ ...meta, topic: t })}
+          placeholder="e.g., Rotational Dynamics — Moment of Inertia"
+          placeholderTextColor={C.muted}
+          style={g.input}
+        />
+      </View>
+
+      <TouchableOpacity style={g.primaryBtn} onPress={startRecording}>
+        <Text style={g.primaryBtnText}>🎙️ Start Classroom Recording</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
