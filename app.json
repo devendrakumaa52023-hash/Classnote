@@ -1,17 +1,43 @@
 {
   "expo": {
     "name": "ClassNote AI",
-    "slug": "classnote-ai",
+    "slug": "classnote",
     "version": "1.0.0",
+    "owner": "dev4035",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "com.classnote.ai",
-      "permissions": ["RECORD_AUDIO", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MICROPHONE", "WAKE_LOCK", "POST_NOTIFICATIONS"]
+      "permissions": [
+        "RECORD_AUDIO",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "WAKE_LOCK",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "plugins": [
-      ["expo-audio", { "microphonePermission": "ClassNote AI records your lecture.", "enableBackgroundRecording": true }],
-      ["expo-build-properties", { "android": { "compileSdkVersion": 35, "targetSdkVersion": 35 } }]
-    ]
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "ClassNote AI records your lecture.",
+          "enableBackgroundRecording": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8eda18a4-205c-4712-9b73-b1c64e5c837a"
+      }
+    }
   }
 }
